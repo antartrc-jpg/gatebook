@@ -173,7 +173,7 @@ function renderTable(items){
     const kept = !!x.retention_keep;
     const statusChip = kept ? `<span class="chip ok">KEEP</span>` : (x.within_24h ? `<span class="chip warn">within_24h</span>` : `<span class="chip">ok</span>`);
     const nextKeep = !kept; const btnLabel = kept ? "Make Ephemeral" : "Keep";
-    const taken = x.exif_taken_at ? new Date(x.exif_taken_at).toLocaleString() : "-";
+    const taken = x.exif_taken_at ? new Date(x.exif_taken_at).toLocaleString() : (x.server_received_at ? new Date(x.server_received_at).toLocaleString()+" (server)" : "-");
     const tr = document.createElement("tr");
     tr.innerHTML = `
       <td><a href="${x.get_url}" target="_blank">${x.filename}</a></td>
@@ -323,3 +323,4 @@ setInterval(()=>document.hidden?null:loadRecent(),7000);
 </script>
 </body>
 </html>
+

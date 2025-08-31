@@ -1,5 +1,6 @@
 ﻿# api2/app/main.py  — v0.3.0 hardened + retention alias + EXIF taken_at
 import os, re, uuid, time, hashlib
+from urllib.parse import quote as _urlquote
 from io import BytesIO
 from datetime import datetime, timezone
 from typing import List, Optional, Tuple
@@ -191,8 +192,15 @@ def validate_sha256_hex(s: Optional[str]):
         raise HTTPException(status_code=400, detail="sha256_hex must be 64 hex chars")
 
 def make_get_url(key: str, expires: int = 900) -> str:
+    filename = os.path.basename(key) if key else "download"
     return s3_pub.generate_presigned_url(
-        "get_object", Params={"Bucket": S3_BUCKET, "Key": key}, ExpiresIn=expires
+        "get_object",
+        Params={
+            "Bucket": S3_BUCKET,
+            "Key": key,
+            "ResponseContentDisposition": f'attachment; filename="{filename}"'
+        },
+        ExpiresIn=expires
     )
 
 def parse_exif_datetime(value: str) -> Optional[datetime]:
@@ -455,5 +463,7 @@ def files_policy():
         max_bytes=MAX_BYTES,
         verify_sha256=VERIFY_SHA256,
     )
+
+
 
 
