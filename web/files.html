@@ -1,0 +1,48 @@
+﻿<!doctype html>
+<meta charset="utf-8"/>
+<title>Gatebook – Recent Files</title>
+<style>
+  body{font-family:system-ui;margin:2rem}
+  table{border-collapse:collapse;width:100%}
+  th,td{border:1px solid #ccc;padding:.5rem;text-align:left}
+  .chip{font-size:12px;padding:2px 8px;border-radius:999px;border:1px solid #888;background:#fafafa}
+  .warn{border-color:#c97;background:#fff3e8}
+  .ok{border-color:#7a7;background:#eef9ee}
+</style>
+
+<h1>Recent Files</h1>
+<table>
+  <thead><tr><th>When</th><th>Name</th><th>Size</th><th>Type</th><th>Link</th><th>Retention</th><th>Actions</th></tr></thead>
+  <tbody id="tb"><tr><td colspan="7">laden…</td></tr></tbody>
+</table>
+
+<script>
+const API="http://localhost:8081"; const tb=document.getElementById("tb");
+const fmtSize=n=>n>=1e6?(n/1e6).toFixed(2)+" MB":n>=1e3?(n/1e3).toFixed(1)+" kB":n+" B";
+const isKept = (x) => { try { const ageMs = Date.now() - new Date(x.server_received_at).getTime(); return x.within_24h===false && ageMs < 24*60*60*1000; } catch { return false; } };
+
+async function load(){ const r=await fetch(API+"/files/recent2"); if(!r.ok){tb.innerHTML=`<tr><td colspan="7">Fehler: ${r.status}</td></tr>`;return;}
+  const rows=await r.json(); if(!rows.length){tb.innerHTML=`<tr><td colspan="7">keine Daten</td></tr>`;return;} tb.innerHTML="";
+  for(const x of rows){ const kept=isKept(x); const st=kept?`<span class="chip ok">KEEP</span>`:x.within_24h?`<span class="chip warn">within_24h</span>`:`<span class="chip">ok</span>`;
+    const nextKeep = !kept; const label = kept ? "Make Ephemeral" : "Keep";
+    const tr=document.createElement("tr");
+    tr.innerHTML=`<td>${new Date(x.server_received_at||Date.now()).toLocaleString()}</td>
+      <td>${x.filename}</td><td>${fmtSize(x.size_bytes)}</td><td>${x.content_type}</td>
+      <td><a href="${x.get_url}" target="_blank">open</a></td><td>${st}</td>
+      <td><button class="keep" data-id="${x.id}" data-keep="${nextKeep}">${label}</button>
+          <button class="del" data-id="${x.id}">Delete</button></td>`; tb.appendChild(tr); }
+  bind();
+}
+async function patchRetention(id, keep){
+  let r = await fetch(`${API}/files/${id}/retention`, { method:"PATCH", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ retention_keep: keep }) });
+  if (r.status===422 || r.status===400 || r.status===404) {
+    r = await fetch(`${API}/files/${id}/retention`, { method:"PATCH", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ within_24h: !keep }) });
+  }
+  if(!r.ok) alert("Retention-Fehler: "+r.status);
+}
+function bind(){
+  document.querySelectorAll("button.keep").forEach(b=>b.onclick=async e=>{const id=e.currentTarget.dataset.id; const keep=e.currentTarget.dataset.keep==="true"; await patchRetention(id, keep); load();});
+  document.querySelectorAll("button.del").forEach(b=>b.onclick=async e=>{const id=e.currentTarget.dataset.id; if(!confirm("Löschen?"))return; const r=await fetch(`${API}/files/${id}`,{method:"DELETE"}); if(r.status===204) load(); else alert("Delete-Fehler: "+r.status);});
+}
+load();
+</script>

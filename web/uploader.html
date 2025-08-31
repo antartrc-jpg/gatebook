@@ -1,0 +1,171 @@
+﻿<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8" />
+  <title>Gatebook – Upload & Recent (Merge)</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    :root { font-family: system-ui, Segoe UI, Roboto, sans-serif; }
+    body { margin: 0; background: #0b0f14; color: #e6eef7; }
+    header { padding: 16px 20px; border-bottom: 1px solid #1b2735; display:flex; gap:16px; align-items:center;}
+    .grid { display: grid; grid-template-columns: 1fr 1.2fr; gap: 16px; padding: 16px 20px; }
+    .card { background: #0f1720; border: 1px solid #1b2735; border-radius: 12px; }
+    .card h2 { margin: 0; padding: 12px 16px; border-bottom: 1px solid #1b2735; font-size: 16px;}
+    .card .body { padding: 16px; }
+    .row { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+    input[type=file] { padding: 8px; background:#0b111a; border:1px solid #1b2735; border-radius:8px; color:#e6eef7;}
+    button { background:#1f2a38; border:1px solid #2b3a4f; color:#e6eef7; padding: 8px 14px; border-radius:8px; cursor:pointer;}
+    button[disabled] { opacity:.6; cursor:not-allowed;}
+    .muted { color:#93a4b7; font-size:12px;}
+    .progress { width:100%; height:8px; background:#0b111a; border:1px solid #1b2735; border-radius:999px; overflow:hidden;}
+    .bar { height:100%; width:0%; background:#3aa8ff; transition: width .2s;}
+    table { width:100%; border-collapse: collapse; }
+    th, td { border-bottom:1px solid #1b2735; padding:10px; text-align:left; font-size:14px;}
+    .chip { font-size:12px; padding:2px 8px; border-radius:999px; border:1px solid #2b3a4f; background:#0b111a; }
+    .chip.ok { border-color:#245a2a; background:#0f1a12; color:#a8e6b1;}
+    .chip.warn { border-color:#5a3b24; background:#1a130f; color:#f0c49c;}
+    .toast { position:fixed; right:16px; bottom:16px; background:#12202c; color:#e6eef7; border:1px solid #24425a; padding:10px 12px; border-radius:10px; min-width:220px;}
+    .row-actions button { padding:6px 10px; }
+    a { color:#7dc0ff; text-decoration:none;} a:hover { text-decoration:underline; }
+    .spacer { flex:1; }
+  </style>
+</head>
+<body>
+<header>
+  <strong>Gatebook</strong>
+  <span class="muted">Upload & Recent (presign2 → PUT → confirm2)</span>
+  <span class="spacer"></span>
+  <a href="/files.html" target="_blank">Classic Recents</a>
+</header>
+
+<div class="grid">
+  <section class="card">
+    <h2>Upload</h2>
+    <div class="body">
+      <div class="row">
+        <input id="file" type="file" />
+        <label><input id="keep" type="checkbox" /> Keep (nicht Janitor-löschbar)</label>
+        <button id="btnUpload">Upload starten</button>
+      </div>
+      <div id="info" class="muted" style="margin-top:8px;">Erlaubt lt. Server (MIME-Whitelist), max. 20 MB. Content-Type muss exakt stimmen.</div>
+      <div style="margin-top:12px;">
+        <div class="progress"><div id="bar" class="bar"></div></div>
+        <div id="status" class="muted" style="margin-top:6px;">Bereit.</div>
+      </div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Recent Files</h2>
+    <div class="body">
+      <div class="row" style="margin-bottom:8px;">
+        <button id="btnRefresh">Aktualisieren</button>
+        <span class="muted">Auto-Refresh alle 7 s</span>
+      </div>
+      <table id="tbl">
+        <thead>
+          <tr><th>Datei</th><th>Typ</th><th>Größe</th><th>Status</th><th>Aktionen</th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+</div>
+
+<div id="toast" class="toast" style="display:none;"></div>
+
+<script>
+const API = "http://localhost:8081";
+const $  = s => document.querySelector(s);
+const $$ = s => Array.from(document.querySelectorAll(s));
+const fmtSize = n => (n>=1e6? (n/1e6).toFixed(2)+" MB" : n>=1e3? (n/1e3).toFixed(1)+" kB" : n+" B");
+const showToast = (m) => { const t=$("#toast"); t.textContent = m; t.style.display="block"; clearTimeout(t._h); t._h=setTimeout(()=>t.style.display="none", 3500); };
+const setStatus = t => $("#status").textContent = t;
+const setBar    = p => $("#bar").style.width = Math.max(0,Math.min(100,p))+"%";
+const isKept = (x) => {
+  try {
+    const ageMs = Date.now() - new Date(x.server_received_at).getTime();
+    return x.within_24h === false && ageMs < 24*60*60*1000;
+  } catch { return false; }
+};
+
+async function sha256Hex(file){ if(!(crypto&&crypto.subtle)) return null; const buf=await file.arrayBuffer(); const h=await crypto.subtle.digest("SHA-256",buf); return [...new Uint8Array(h)].map(b=>b.toString(16).padStart(2,"0")).join(""); }
+async function presign2(filename, contentType, size){
+  const r = await fetch(`${API}/files/presign2`, { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify({ filename, content_type:contentType, size_bytes:size })});
+  if(!r.ok) throw new Error(`presign2 ${r.status}`); return r.json();
+}
+async function confirm2(file_id, sha256_hex){
+  const r = await fetch(`${API}/files/confirm2`, { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify(sha256_hex?{file_id,sha256_hex}:{file_id})});
+  if(!r.ok) throw new Error(`confirm2 ${r.status}`); return r.json();
+}
+// Retention-PATCH mit Fallback
+async function patchRetention(id, keep){
+  let r = await fetch(`${API}/files/${id}/retention`, {
+    method:"PATCH", headers:{ "Content-Type":"application/json" },
+    body: JSON.stringify({ retention_keep: keep })
+  });
+  if (r.status === 422 || r.status === 400 || r.status === 404) {
+    r = await fetch(`${API}/files/${id}/retention`, {
+      method:"PATCH", headers:{ "Content-Type":"application/json" },
+      body: JSON.stringify({ within_24h: !keep })
+    });
+  }
+  if(!r.ok) throw new Error(`retention ${r.status}`);
+}
+async function delFile(id){ const r = await fetch(`${API}/files/${id}`, { method:"DELETE" }); if(r.status!==204) throw new Error(`delete ${r.status}`); }
+async function loadRecent(){ const r = await fetch(`${API}/files/recent2`); if(!r.ok) throw new Error(`recent2 ${r.status}`); renderTable(await r.json()); }
+
+function renderTable(items){
+  const tb = $("#tbl tbody"); tb.innerHTML = "";
+  for(const x of items){
+    const kept = isKept(x);
+    const tr = document.createElement("tr");
+    const statusChip = kept ? `<span class="chip ok">KEEP</span>` : (x.within_24h ? `<span class="chip warn">within_24h</span>` : `<span class="chip">ok</span>`);
+    const nextKeep = !kept; // wenn kept → Button macht ephem., sonst Keep setzen
+    const btnLabel = kept ? "Make Ephemeral" : "Keep";
+    tr.innerHTML = `
+      <td><a href="${x.get_url}" target="_blank">${x.filename}</a></td>
+      <td>${x.content_type}</td>
+      <td>${fmtSize(x.size_bytes)}</td>
+      <td>${statusChip}</td>
+      <td class="row-actions">
+        <button class="btn-keep" data-id="${x.id}" data-keep="${nextKeep}">${btnLabel}</button>
+        <button class="btn-del" data-id="${x.id}">Delete</button>
+      </td>`;
+    tb.appendChild(tr);
+  }
+  $$(".btn-keep").forEach(b => b.onclick = async e => {
+    const id = e.currentTarget.dataset.id; const keep = e.currentTarget.dataset.keep==="true";
+    try { await patchRetention(id, keep); showToast(keep?"Keep gesetzt":"Ephemeral gesetzt"); await loadRecent(); }
+    catch(err){ showToast("Fehler Retention: "+err.message); }
+  });
+  $$(".btn-del").forEach(b => b.onclick = async e => {
+    const id = e.currentTarget.dataset.id;
+    if(!confirm("Datei wirklich löschen?")) return;
+    try { await delFile(id); showToast("Gelöscht"); await loadRecent(); }
+    catch(err){ showToast("Fehler Delete: "+err.message); }
+  });
+}
+
+async function handleUpload(){
+  const f = $("#file").files[0]; if(!f){ showToast("Bitte Datei wählen"); return; }
+  const ct = f.type || "application/octet-stream"; const keep = $("#keep").checked;
+  try{
+    setBar(0); setStatus("Hashing…"); const hash = await sha256Hex(f); setBar(10);
+    setStatus("presign2…"); const pres = await presign2(f.name, ct, f.size); setBar(30);
+    setStatus("PUT → S3…"); const put = await fetch(pres.url,{method:"PUT",headers:{"Content-Type":ct},body:f}); if(!put.ok) throw new Error(`PUT ${put.status}`); setBar(70);
+    setStatus("confirm2…"); await confirm2(pres.file_id, hash); setBar(85);
+    if(keep){ setStatus("Keep setzen…"); await patchRetention(pres.file_id, true); }
+    setBar(100); setStatus("Fertig."); showToast("Upload ok"); await loadRecent();
+  } catch(err){
+    setStatus("Fehler: "+err.message);
+    const m=String(err.message); if(m.includes("415")) showToast("415: Dateityp nicht erlaubt");
+    else if(m.includes("413")) showToast("413: Datei zu groß (max. 20 MB)");
+    else if(m.includes("403")) showToast("403: Content-Type muss exakt passen"); else showToast("Upload fehlgeschlagen");
+  }
+}
+$("#btnUpload").onclick = handleUpload; $("#btnRefresh").onclick = loadRecent;
+loadRecent().catch(e=>showToast("Recent-Fehler: "+e.message)); setInterval(()=>document.hidden?null:loadRecent(),7000);
+</script>
+</body>
+</html>
