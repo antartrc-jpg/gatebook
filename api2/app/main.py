@@ -1,6 +1,7 @@
-﻿# api2/app/main.py  — hardened + retention alias
+﻿# api2/app/main.py  — v0.3.0 hardened + retention alias + EXIF taken_at
 import os, re, uuid, time, hashlib
-from datetime import datetime
+from io import BytesIO
+from datetime import datetime, timezone
 from typing import List, Optional, Tuple
 
 import psycopg2, psycopg2.extras
@@ -9,6 +10,12 @@ from botocore.config import Config
 from fastapi import FastAPI, HTTPException, Response, Path
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
+
+try:
+    from PIL import Image, ExifTags
+    PIL_OK = True
+except Exception:
+    PIL_OK = False
 
 # -------------------------
 # Konfiguration (ENV)
@@ -36,7 +43,7 @@ VERIFY_SHA256 = os.getenv("UPLOAD_VERIFY_SHA256", "false").lower() in ("1", "tru
 # -------------------------
 # App + CORS
 # -------------------------
-app = FastAPI(title="Gatebook API2", version="0.2.0")
+app = FastAPI(title="Gatebook API2", version="0.3.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOW_ORIGINS,
@@ -146,11 +153,10 @@ class FileRowOut(BaseModel):
     server_received_at: Optional[datetime] = None
     get_url: Optional[str] = None
     within_24h: Optional[bool] = None
-    # neu: abgeleitet für Clients, die "Keep" anzeigen wollen
     retention_keep: Optional[bool] = None
+    exif_taken_at: Optional[datetime] = None
 
 class RetentionPatch(BaseModel):
-    # Aliasfähig: neue und alte Clients
     retention_keep: Optional[bool] = None
     within_24h:    Optional[bool] = None
 
@@ -187,6 +193,42 @@ def make_get_url(key: str, expires: int = 900) -> str:
     return s3_pub.generate_presigned_url(
         "get_object", Params={"Bucket": S3_BUCKET, "Key": key}, ExpiresIn=expires
     )
+
+def parse_exif_datetime(value: str) -> Optional[datetime]:
+    """
+    EXIF-Format: 'YYYY:MM:DD HH:MM:SS' – ohne TZ. Wir speichern als UTC.
+    """
+    try:
+        dt = datetime.strptime(value.strip(), "%Y:%m:%d %H:%M:%S")
+        return dt.replace(tzinfo=timezone.utc)
+    except Exception:
+        return None
+
+def detect_exif_taken_at(key: str, content_type: str) -> Optional[datetime]:
+    """
+    Nur JPEG sicher. WEBP/PNG werden übersprungen (optional später).
+    """
+    if not PIL_OK:
+        return None
+    if content_type.lower() not in ("image/jpeg", "image/jpg"):
+        return None
+    try:
+        obj = s3_int.get_object(Bucket=S3_BUCKET, Key=key)
+        data = obj["Body"].read()
+        with Image.open(BytesIO(data)) as im:
+            exif = im.getexif()
+            if not exif:
+                return None
+            # Primär 36867 (DateTimeOriginal), Fallback 36868/306
+            tag_map = {ExifTags.TAGS.get(k, str(k)): v for k, v in exif.items()}
+            for k in ("DateTimeOriginal", "DateTimeDigitized", "DateTime"):
+                if k in tag_map and isinstance(tag_map[k], str):
+                    dt = parse_exif_datetime(tag_map[k])
+                    if dt:
+                        return dt
+    except Exception:
+        return None
+    return None
 
 # -------------------------
 # Health
@@ -247,7 +289,6 @@ def confirm_core(inp: ConfirmIn):
         except Exception: pass
         raise HTTPException(status_code=400, detail="uploaded object invalid size")
 
-    # harte MIME-Prüfung auf dem Objekt
     if content_type not in ALLOWED_MIME:
         try: s3_int.delete_object(Bucket=S3_BUCKET, Key=key)
         except Exception: pass
@@ -266,21 +307,25 @@ def confirm_core(inp: ConfirmIn):
             except Exception: pass
             raise HTTPException(status_code=400, detail="sha256 mismatch")
 
+    # EXIF taken_at (nur JPEG)
+    exif_dt = detect_exif_taken_at(key, content_type)
+
     filename = key.split("/", 2)[-1]
     conn = db(); cur = conn.cursor()
     cur.execute("""
-        insert into file_object(id, filename, size_bytes, content_type, s3_key, server_received_at, within_24h)
-        values (%s,%s,%s,%s,%s, now(), true)
+        insert into file_object(id, filename, size_bytes, content_type, s3_key, server_received_at, within_24h, exif_taken_at)
+        values (%s,%s,%s,%s,%s, now(), true, %s)
         on conflict (id) do update
           set filename=excluded.filename,
               size_bytes=excluded.size_bytes,
               content_type=excluded.content_type,
               s3_key=excluded.s3_key,
-              server_received_at=excluded.server_received_at
-    """, (inp.file_id, filename, size_bytes, content_type, key))
+              server_received_at=excluded.server_received_at,
+              exif_taken_at=coalesce(excluded.exif_taken_at, file_object.exif_taken_at)
+    """, (inp.file_id, filename, size_bytes, content_type, key, exif_dt))
     cur.execute(
         "insert into audit_log(action, entity, entity_id, meta) values (%s,%s,%s,%s)",
-        ("files.confirm", "file_object", inp.file_id, psycopg2.extras.Json({"size": size_bytes, "content_type": content_type})),
+        ("files.confirm", "file_object", inp.file_id, psycopg2.extras.Json({"size": size_bytes, "content_type": content_type, "exif_taken_at": (exif_dt.isoformat() if exif_dt else None)})),
     )
     conn.commit(); cur.close(); conn.close()
     return {"ok": True, "size_bytes": size_bytes, "content_type": content_type}
@@ -291,20 +336,20 @@ def confirm_core(inp: ConfirmIn):
 @app.post("/files/presign",  response_model=PreSignOut)
 def files_presign(inp: PreSignIn):  return presign_core(inp)
 
-@app.post("/files/presign2", response_model=PreSignOut)  # Alias
+@app.post("/files/presign2", response_model=PreSignOut)
 def files_presign2(inp: PreSignIn): return presign_core(inp)
 
 @app.post("/files/confirm")
 def files_confirm(inp: ConfirmIn):  return confirm_core(inp)
 
-@app.post("/files/confirm2")  # Alias
+@app.post("/files/confirm2")
 def files_confirm2(inp: ConfirmIn): return confirm_core(inp)
 
-# Helper-Select mit abgeleitetem retention_keep
 SELECT_BASE = """
 select
   id::text, filename, size_bytes, content_type, s3_key, server_received_at, within_24h,
-  ((not within_24h) and server_received_at > now() - interval '24 hours') as retention_keep
+  ((not within_24h) and server_received_at > now() - interval '24 hours') as retention_keep,
+  exif_taken_at
 from file_object
 """
 
@@ -313,16 +358,16 @@ def files_recent(limit: int = 20):
     conn = db(); cur = conn.cursor()
     cur.execute(SELECT_BASE + " order by server_received_at desc nulls last limit %s", (limit,))
     rows: List[FileRowOut] = []
-    for rid, fn, sz, ct, key, dt, w24, keep in cur.fetchall():
+    for rid, fn, sz, ct, key, dt, w24, keep, exif_dt in cur.fetchall():
         url = make_get_url(key) if key else None
         rows.append(FileRowOut(
             id=rid, filename=fn, size_bytes=sz, content_type=ct, s3_key=key,
-            server_received_at=dt, get_url=url, within_24h=w24, retention_keep=keep
+            server_received_at=dt, get_url=url, within_24h=w24, retention_keep=keep, exif_taken_at=exif_dt
         ))
     cur.close(); conn.close()
     return rows
 
-@app.get("/files/recent2", response_model=List[FileRowOut])  # Alias, gleiche Logik
+@app.get("/files/recent2", response_model=List[FileRowOut])
 def files_recent2(limit: int = 20): return files_recent(limit)
 
 @app.get("/files/{file_id}/download", response_model=FileRowOut)
@@ -332,15 +377,14 @@ def files_download(file_id: str):
     r = cur.fetchone(); cur.close(); conn.close()
     if not r:
         return FileRowOut(id=file_id, filename="(not found)", s3_key="", get_url=None)
-    rid, fn, sz, ct, key, dt, w24, keep = r
+    rid, fn, sz, ct, key, dt, w24, keep, exif_dt = r
     return FileRowOut(
         id=rid, filename=fn, size_bytes=sz, content_type=ct, s3_key=key,
-        server_received_at=dt, get_url=make_get_url(key), within_24h=w24, retention_keep=keep
+        server_received_at=dt, get_url=make_get_url(key), within_24h=w24, retention_keep=keep, exif_taken_at=exif_dt
     )
 
 @app.delete("/files/{file_id}", status_code=204)
 def files_delete(file_id: str):
-    # idempotent: 204 auch wenn schon weg
     key = None
     conn = db(); cur = conn.cursor()
     cur.execute("select s3_key from file_object where id=%s", (file_id,))
@@ -360,7 +404,6 @@ def files_delete(file_id: str):
 
 @app.patch("/files/{file_id}/retention", status_code=204)
 def files_set_retention(file_id: str, inp: RetentionPatch):
-    # Alias-Auswertung
     if inp.retention_keep is not None:
         desired_within_24h = (not inp.retention_keep)
     elif inp.within_24h is not None:
