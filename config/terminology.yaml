@@ -1,0 +1,6 @@
+﻿version: 1
+labels:
+  system: { MIS: "Meetings im System", OSR: "Off-System-Rate", PPM: "Problems per Meeting", ODcov: "Outcome-Doc Coverage" }
+  roles:  { Sponsor: "Sponsor", Admin: "Admin", Owner: "Owner", Deputy: "Stv. Owner", Leader: "Leader", Viewer: "Viewer" }
+  meetings: { weekly: "Weekly", biweekly: "Zweiwöchentlich" }
+notes: { engine_constant: "Schwellen/Logik bleiben unverändert; nur Labels variieren" }

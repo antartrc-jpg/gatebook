@@ -1,0 +1,12 @@
+﻿services:
+  janitor:
+    build:
+      context: ../api2
+      dockerfile: Dockerfile
+    command: ["python","app/janitor.py"]
+    env_file:
+      - ../api2/.env
+    environment:
+      CLEANUP_THRESHOLD_MINUTES: "1440"   # 24h
+      CLEANUP_INTERVAL_SECONDS: "300"     # alle 5 Minuten
+    depends_on: [db, minio, redis]

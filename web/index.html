@@ -1,0 +1,19 @@
+﻿<!doctype html><html lang="de"><meta charset="utf-8"><title>Gatebook Uploader</title>
+<h3>Gatebook â€“ Mini Uploader</h3>
+<input type="file" id="f"/><button id="btn">Upload</button>
+<pre id="out"></pre>
+<script>
+const api = "http://localhost:8080";
+const out = (m)=>document.getElementById('out').textContent += m+"\\n";
+document.getElementById('btn').onclick = async ()=>{
+  const file = document.getElementById('f').files[0]; if(!file) return;
+  out("Datei: "+file.name+" ("+file.type+", "+file.size+" bytes)");
+  const r1 = await fetch(api+"/files/presign",{method:"POST",headers: {"Content-Type":"application/json"},body: JSON.stringify({filename:file.name, content_type:file.type||"application/octet-stream", size_bytes:file.size})});
+  const p = await r1.json();
+  await fetch(p.url,{ method:"PUT", headers: {"Content-Type":file.type||"application/octet-stream"}, body:file});
+  const buf = await file.arrayBuffer();
+  const hash = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", buf))).map(b=>b.toString(16).padStart(2,"0")).join("");
+  const r2 = await fetch(api+"/files/confirm",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({file_id:p.file_id, sha256_hex:hash})});
+  out("Fertig: "+await r2.text());
+};
+</script>
