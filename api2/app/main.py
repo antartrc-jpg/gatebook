@@ -3,6 +3,7 @@ import os, re, uuid, time, hashlib
 from io import BytesIO
 from datetime import datetime, timezone
 from typing import List, Optional, Tuple
+from uuid import UUID
 
 import psycopg2, psycopg2.extras
 import boto3
@@ -356,7 +357,7 @@ from file_object
 @app.get("/files/recent", response_model=List[FileRowOut])
 def files_recent(limit: int = 20):
     conn = db(); cur = conn.cursor()
-    cur.execute(SELECT_BASE + " order by server_received_at desc nulls last limit %s", (limit,))
+    cur.execute(SELECT_BASE + " order by coalesce(exif_taken_at, server_received_at) desc nulls last, server_received_at desc nulls last limit %s", (limit,))
     rows: List[FileRowOut] = []
     for rid, fn, sz, ct, key, dt, w24, keep, exif_dt in cur.fetchall():
         url = make_get_url(key) if key else None
@@ -370,8 +371,8 @@ def files_recent(limit: int = 20):
 @app.get("/files/recent2", response_model=List[FileRowOut])
 def files_recent2(limit: int = 20): return files_recent(limit)
 
-@app.get("/files/{file_id}/download", response_model=FileRowOut)
-def files_download(file_id: str):
+@app.get("/files/{file_id:uuid}/download", response_model=FileRowOut)
+def files_download(file_id: UUID):
     conn = db(); cur = conn.cursor()
     cur.execute(SELECT_BASE + " where id=%s", (file_id,))
     r = cur.fetchone(); cur.close(); conn.close()
@@ -383,8 +384,8 @@ def files_download(file_id: str):
         server_received_at=dt, get_url=make_get_url(key), within_24h=w24, retention_keep=keep, exif_taken_at=exif_dt
     )
 
-@app.delete("/files/{file_id}", status_code=204)
-def files_delete(file_id: str):
+@app.delete("/files/{file_id:uuid}", status_code=204)
+def files_delete(file_id: UUID):
     key = None
     conn = db(); cur = conn.cursor()
     cur.execute("select s3_key from file_object where id=%s", (file_id,))
@@ -402,8 +403,8 @@ def files_delete(file_id: str):
     cur.close(); conn.close()
     return Response(status_code=204)
 
-@app.patch("/files/{file_id}/retention", status_code=204)
-def files_set_retention(file_id: str, inp: RetentionPatch):
+@app.patch("/files/{file_id:uuid}/retention", status_code=204)
+def files_set_retention(file_id: UUID, inp: RetentionPatch):
     if inp.retention_keep is not None:
         desired_within_24h = (not inp.retention_keep)
     elif inp.within_24h is not None:
@@ -422,3 +423,37 @@ def files_set_retention(file_id: str, inp: RetentionPatch):
     if n == 0:
         raise HTTPException(404, "file_id nicht gefunden")
     return Response(status_code=204)
+
+# --- Policy endpoint (optional) ---
+class PolicyOut(BaseModel):
+    allowed_mime: List[str]
+    max_bytes: int
+    verify_sha256: bool
+
+@app.get("/policy", response_model=PolicyOut)
+@app.get("/files/policy", response_model=PolicyOut)
+def files_policy():
+    return PolicyOut(
+        allowed_mime=sorted(list(ALLOWED_MIME)),
+        max_bytes=MAX_BYTES,
+        verify_sha256=VERIFY_SHA256,
+    )
+
+
+
+# --- Policy endpoint ---
+class PolicyOut(BaseModel):
+    allowed_mime: List[str]
+    max_bytes: int
+    verify_sha256: bool
+
+@app.get("/policy", response_model=PolicyOut)
+@app.get("/files/policy", response_model=PolicyOut)
+def files_policy():
+    return PolicyOut(
+        allowed_mime=sorted(list(ALLOWED_MIME)),
+        max_bytes=MAX_BYTES,
+        verify_sha256=VERIFY_SHA256,
+    )
+
+
