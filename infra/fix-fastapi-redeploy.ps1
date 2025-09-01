@@ -1,4 +1,4 @@
-﻿$ErrorActionPreference="Stop"
+$ErrorActionPreference="Stop"
 Write-Host "==> FIX FASTAPI (Model-Syntax + Ports) + Redeploy + Smoke" -ForegroundColor Cyan
 
 # Pfade

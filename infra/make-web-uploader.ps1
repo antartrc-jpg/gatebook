@@ -1,4 +1,4 @@
-﻿$ErrorActionPreference="Stop"
+$ErrorActionPreference="Stop"
 $INFRA=(Get-Location).Path
 $WEB = Join-Path (Split-Path -Parent $INFRA) "web"
 New-Item -ItemType Directory -Force -Path $WEB | Out-Null

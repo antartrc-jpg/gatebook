@@ -1,4 +1,4 @@
-﻿# infra\force-fastapi.ps1
+# infra\force-fastapi.ps1
 $ErrorActionPreference="Stop"
 Write-Host "==> Force FastAPI für api-Service" -ForegroundColor Cyan
 

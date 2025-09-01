@@ -1,4 +1,4 @@
-﻿$ErrorActionPreference="Stop"
+$ErrorActionPreference="Stop"
 Write-Host "==> APPLY API2 (FastAPI @8081) + Smoke" -ForegroundColor Cyan
 
 # Pfade

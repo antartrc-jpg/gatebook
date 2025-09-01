@@ -1,4 +1,4 @@
-﻿$ErrorActionPreference="Stop"
+$ErrorActionPreference="Stop"
 Write-Host "==> Switch API -> FastAPI" -ForegroundColor Cyan
 
 # Pfade

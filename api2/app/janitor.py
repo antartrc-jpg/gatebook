@@ -1,4 +1,4 @@
-﻿import os, time, argparse, psycopg2, psycopg2.extras, boto3
+import os, time, argparse, psycopg2, psycopg2.extras, boto3
 from botocore.config import Config
 
 DB_URL = os.getenv("DATABASE_URL")

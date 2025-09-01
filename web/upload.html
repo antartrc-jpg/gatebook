@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="utf-8"/>
-  <title>Gatebook – Mini Uploader</title>
+  <title>Gatebook â€“ Mini Uploader</title>
   <style>body{font-family:system-ui;margin:2rem} input,button{font-size:1rem}</style>
 </head>
 <body>
@@ -14,7 +14,7 @@
 const out = (m)=>document.getElementById('out').textContent += m+"\\n";
 document.getElementById('btn').onclick = async ()=>{
   const f = document.getElementById('file').files[0];
-  if(!f){ out("Bitte Datei wählen"); return; }
+  if(!f){ out("Bitte Datei wÃ¤hlen"); return; }
   out("Presign...");
   const pres = await fetch('http://localhost:8081/files/presign', {
     method:'POST', headers:{'Content-Type':'application/json'},
