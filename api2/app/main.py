@@ -240,6 +240,22 @@ def detect_exif_taken_at(key: str, content_type: str) -> Optional[datetime]:
     return None
 
 # -------------------------
+# Policy
+# -------------------------
+class PolicyOut(BaseModel):
+    allowed_mime: List[str]
+    max_bytes: int
+    verify_sha256: bool
+
+@app.get("/policy", response_model=PolicyOut)
+@app.get("/files/policy", response_model=PolicyOut)
+def get_policy():
+    return PolicyOut(
+        allowed_mime=sorted(list(ALLOWED_MIME)),
+        max_bytes=MAX_BYTES,
+        verify_sha256=VERIFY_SHA256,
+    )
+# -------------------------
 # Health
 # -------------------------
 @app.get("/health")
@@ -463,6 +479,7 @@ def files_policy():
         max_bytes=MAX_BYTES,
         verify_sha256=VERIFY_SHA256,
     )
+
 
 
 
