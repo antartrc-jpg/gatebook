@@ -1,0 +1,6 @@
+services:
+  minio:
+    environment:
+      MINIO_API_CORS_ALLOW_ORIGIN: http://localhost:5173
+      MINIO_API_CORS_ALLOW_METHODS: GET,PUT,POST,HEAD
+      MINIO_API_CORS_ALLOW_HEADERS: "*"

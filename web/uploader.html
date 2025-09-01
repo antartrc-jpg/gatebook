@@ -1,326 +1,95 @@
 ﻿<!doctype html>
-<html lang="de">
-<head>
-  <meta charset="utf-8" />
-  <title>Gatebook – Upload & Recent (Merge)</title>
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <style>
-    :root { font-family: system-ui, Segoe UI, Roboto, sans-serif; }
-    body { margin: 0; background: #0b0f14; color: #e6eef7; }
-    header { padding: 16px 20px; border-bottom: 1px solid #1b2735; display:flex; gap:16px; align-items:center;}
-    .grid { display: grid; grid-template-columns: 1fr 1.2fr; gap: 16px; padding: 16px 20px; }
-    .card { background: #0f1720; border: 1px solid #1b2735; border-radius: 12px; }
-    .card h2 { margin: 0; padding: 12px 16px; border-bottom: 1px solid #1b2735; font-size: 16px;}
-    .card .body { padding: 16px; }
-    .row { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
-    input[type=file] { padding: 8px; background:#0b111a; border:1px solid #1b2735; border-radius:8px; color:#e6eef7;}
-    button { background:#1f2a38; border:1px solid #2b3a4f; color:#e6eef7; padding: 8px 14px; border-radius:8px; cursor:pointer;}
-    button[disabled] { opacity:.6; cursor:not-allowed;}
-    .muted { color:#93a4b7; font-size:12px;}
-    .progress { width:100%; height:8px; background:#0b111a; border:1px solid #1b2735; border-radius:999px; overflow:hidden;}
-    .bar { height:100%; width:0%; background:#3aa8ff; transition: width .15s linear;}
-    table { width:100%; border-collapse: collapse; }
-    th, td { border-bottom:1px solid #1b2735; padding:10px; text-align:left; font-size:14px;}
-    .chip { font-size:12px; padding:2px 8px; border-radius:999px; border:1px solid #2b3a4f; background:#0b111a; }
-    .chip.ok { border-color:#245a2a; background:#0f1a12; color:#a8e6b1;}
-    .chip.warn { border-color:#5a3b24; background:#1a130f; color:#f0c49c;}
-    .toast { position:fixed; right:16px; bottom:16px; background:#12202c; color:#e6eef7; border:1px solid #24425a; padding:10px 12px; border-radius:10px; min-width:220px;}
-    .row-actions button { padding:6px 10px; }
-    a { color:#7dc0ff; text-decoration:none;} a:hover { text-decoration:underline; }
-    .spacer { flex:1; }
+<meta charset="utf-8"/>
+<title>Gatebook â€“ Mini Uploader</title>
+<style>
+  body{font-family:system-ui;margin:2rem}
+  h1{margin:0 0 1rem}
+  button{padding:.3rem .7rem}
+  #log{white-space:pre-wrap;font-family:ui-monospace,monospace;margin-top:1rem}
+  .ok{color:#177245}.err{color:#a00}
+</style>
+<h1>Gatebook â€“ Mini Uploader</h1>
 
-    /* Dropzone & Queue */
-    .dropzone {
-      margin-top:12px; padding:22px; border:2px dashed #2b3a4f; border-radius:12px;
-      background:#0b111a; color:#93a4b7; text-align:center; user-select:none; cursor:pointer;
-      transition: background .15s, border-color .15s, color .15s;
-    }
-    .dropzone.dragover { border-color:#3aa8ff; background:#0a1420; color:#e6eef7; }
-    .qlist { display:flex; flex-direction:column; gap:10px; margin-top:12px; max-height:260px; overflow:auto; }
-    .qitem { border:1px solid #1b2735; background:#0b111a; border-radius:10px; padding:10px 12px; display:grid; grid-template-columns: 1fr auto; gap:8px; }
-    .qmeta { display:flex; gap:10px; align-items:center; min-width:0; }
-    .qname { font-size:14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-    .qsize { font-size:12px; color:#93a4b7; }
-    .qstatus { font-size:12px; color:#93a4b7; text-align:right; }
-    .qbar { margin-top:6px; grid-column:1 / -1; }
-    .qerr { grid-column:1 / -1; font-size:12px; color:#f0c49c; }
-    .tag { font-size:11px; border:1px solid #2b3a4f; border-radius:999px; padding:2px 8px; background:#0f1720; color:#93a4b7; }
-  </style>
-</head>
-<body>
-<header>
-  <strong>Gatebook</strong>
-  <span class="muted">Upload & Recent (presign2 → PUT → confirm2)</span>
-  <span class="spacer"></span>
-  <a href="/files.html" target="_blank">Classic Recents</a>
-</header>
+<section style="display:flex;gap:1rem;align-items:center;margin:.5rem 0 1.5rem">
+  <input id="file" type="file"/>
+  <label style="display:flex;gap:.4rem;align-items:center">
+    <input id="keep" type="checkbox"> Keep (nicht automatisch lÃ¶schen)
+  </label>
+  <button id="btn" onclick="doUpload()">Upload</button>
+  <a href="http://localhost:5173/files.html" target="_blank">Recent Files Ã¶ffnen</a>
+</section>
 
-<div class="grid">
-  <section class="card">
-    <h2>Upload</h2>
-    <div class="body">
-      <div class="row">
-        <input id="file" type="file" multiple />
-        <label><input id="keep" type="checkbox" /> Keep (nicht Janitor-löschbar)</label>
-        <button id="btnUpload">Upload starten</button>
-        <span class="muted">parallel: 3</span>
-      </div>
-      <div id="info" class="muted" style="margin-top:8px;">Erlaubt lt. Server (MIME-Whitelist), max. 20 MB. Drag&Drop / STRG+V möglich.</div>
-      <div id="dropzone" class="dropzone" title="Klicken, ziehen oder STRG+V">Dateien hierher ziehen oder <strong>STRG+V</strong> zum Einfügen</div>
-      <div id="queue" class="qlist"></div>
-      <div style="margin-top:12px;">
-        <div class="progress"><div id="bar" class="bar"></div></div>
-        <div id="status" class="muted" style="margin-top:6px;">Bereit.</div>
-      </div>
-    </div>
-  </section>
-
-  <section class="card">
-    <h2>Recent Files</h2>
-    <div class="body">
-      <div class="row" style="margin-bottom:8px;">
-        <button id="btnRefresh">Aktualisieren</button>
-        <span class="muted">Auto-Refresh alle 7 s</span>
-      </div>
-      <table id="tbl">
-        <thead>
-          <tr><th>Datei</th><th>Typ</th><th>Größe</th><th>Aufnahme</th><th>Status</th><th>Aktionen</th></tr>
-        </thead>
-        <tbody></tbody>
-      </table>
-    </div>
-  </section>
-</div>
-
-<div id="toast" class="toast" style="display:none;"></div>
+<div id="log"></div>
 
 <script>
-const API = "http://localhost:8081";
-const MAX_PARALLEL = 3;
+const log = (msg, cls="") => {
+  const d=document.getElementById("log");
+  const p=document.createElement("div");
+  if(cls) p.className=cls;
+  p.textContent=msg;
+  d.appendChild(p);
+};
 
-const $  = s => document.querySelector(s);
-const $$ = s => Array.from(document.querySelectorAll(s));
-const fmtSize = n => (n>=1e6? (n/1e6).toFixed(2)+" MB" : n>=1e3? (n/1e3).toFixed(1)+" kB" : (n||0)+" B");
-const showToast = (m) => { const t=$("#toast"); t.textContent = m; t.style.display="block"; clearTimeout(t._h); t._h=setTimeout(()=>t.style.display="none", 3500); };
-const setStatus = t => $("#status").textContent = t;
-const setBar    = p => $("#bar").style.width = Math.max(0,Math.min(100,p))+"%";
+async function sha256Hex(file){
+  const buf = await file.arrayBuffer();
+  const hash = await crypto.subtle.digest("SHA-256", buf);
+  return [...new Uint8Array(hash)].map(b=>b.toString(16).padStart(2,"0")).join("");
+}
 
-/* ---- Policy laden & anzeigen ---- */
-async function applyPolicy(){
+async function doUpload(){
+  const f = document.getElementById("file").files[0];
+  const keep = document.getElementById("keep").checked;
+  if(!f){ alert("Bitte Datei wÃ¤hlen"); return; }
+  document.getElementById("log").innerHTML="";
+  const btn = document.getElementById("btn"); btn.disabled = true;
+
   try{
-    let r = await fetch(`${API}/policy`); if(!r.ok) r = await fetch(`${API}/files/policy`);
-    if(!r.ok) return;
-    const p = await r.json(); window.POLICY = p;
-    const mb = Math.round((p.max_bytes||0)/1e6);
-    const sha = p.verify_sha256 ? "SHA-256: an" : "SHA-256: aus";
-    const mimes = (p.allowed_mime||[]).join(", ");
-    const el = $("#info");
-    el.textContent = `Erlaubt lt. Server: ${mimes} • max. ${mb} MB • ${sha}`;
-    const forAccept = (p.allowed_mime||[]).filter(m => /^(image|text)\//.test(m) || /pdf$/.test(m));
-    if (forAccept.length) $("#file")?.setAttribute("accept", forAccept.join(","));
-  }catch{}
-}
+    log(`Datei: ${f.name} (${f.type||"application/octet-stream"}, ${f.size} bytes)`);
 
-function isAllowed(file){
-  const p = window.POLICY || {};
-  if (p.max_bytes && file.size > p.max_bytes) {
-    return { ok:false, msg:`zu groß (${fmtSize(file.size)} > ${fmtSize(p.max_bytes)})` };
-  }
-  if (p.allowed_mime && p.allowed_mime.length && file.type && !p.allowed_mime.includes(file.type)) {
-    return { ok:false, msg:`MIME nicht erlaubt (${file.type})` };
-  }
-  return { ok:true };
-}
+    // 1) presign
+    log("presign â€¦");
+    const body = JSON.stringify({ filename:f.name, content_type:(f.type||"application/octet-stream"), size_bytes:f.size });
+    const pres = await fetch("http://localhost:8081/files/presign", {
+      method:"POST", headers:{ "Content-Type":"application/json" }, body
+    }).then(r=>{ if(!r.ok) throw new Error("presign HTTP "+r.status); return r.json(); });
 
-/* ---- API helpers ---- */
-async function sha256Hex(file){ if(!(crypto&&crypto.subtle)) return null; const buf=await file.arrayBuffer(); const h=await crypto.subtle.digest("SHA-256",buf); return [...new Uint8Array(h)].map(b=>b.toString(16).padStart(2,"0")).join(""); }
-async function presign2(filename, contentType, size){
-  const r = await fetch(`${API}/files/presign2`, { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify({ filename, content_type:contentType, size_bytes:size })});
-  if(!r.ok) throw new Error(`presign2 ${r.status}`); return r.json();
-}
-async function confirm2(file_id, sha256_hex){
-  const r = await fetch(`${API}/files/confirm2`, { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify(sha256_hex?{file_id,sha256_hex}:{file_id})});
-  if(!r.ok) throw new Error(`confirm2 ${r.status}`); return r.json();
-}
-async function patchRetention(id, keep){
-  let r = await fetch(`${API}/files/${id}/retention`, { method:"PATCH", headers:{ "Content-Type":"application/json" }, body: JSON.stringify({ retention_keep: keep })});
-  if (r.status === 422 || r.status === 400 || r.status === 404) {
-    r = await fetch(`${API}/files/${id}/retention`, { method:"PATCH", headers:{ "Content-Type":"application/json" }, body: JSON.stringify({ within_24h: !keep })});
-  }
-  if(!r.ok) throw new Error(`retention ${r.status}`);
-}
-async function delFile(id){ const r = await fetch(`${API}/files/${id}`, { method:"DELETE" }); if(r.status!==204) throw new Error(`delete ${r.status}`); }
-async function loadRecent(){ const r = await fetch(`${API}/files/recent2`); if(!r.ok) throw new Error(`recent2 ${r.status}`); renderTable(await r.json()); }
-async function freshGetUrl(id){ const r = await fetch(`${API}/files/${id}/download`); if(!r.ok) throw new Error(`download ${r.status}`); const j = await r.json(); return j.get_url; }
+    // 2) PUT nach MinIO â€“ Content-Type MUSS exakt passen
+    log("upload (PUT) â€¦");
+    await fetch(pres.url, {
+      method:"PUT",
+      headers: { "Content-Type": (f.type||"application/octet-stream") },
+      body: f
+    }).then(r=>{ if(!r.ok) throw new Error("PUT HTTP "+r.status); });
 
-/* ---- PUT with progress ---- */
-function putWithProgress(url, file, contentType, onprogress){
-  return new Promise((resolve,reject)=>{
-    const xhr = new XMLHttpRequest();
-    xhr.open("PUT", url, true);
-    xhr.setRequestHeader("Content-Type", contentType);
-    xhr.upload.onprogress = (e)=>{ if(e.lengthComputable && onprogress){ onprogress(e.loaded / e.total); } };
-    xhr.onload = ()=>{ (xhr.status>=200 && xhr.status<300) ? resolve() : reject(new Error(`PUT ${xhr.status}`)); };
-    xhr.onerror = ()=> reject(new Error("PUT network error"));
-    xhr.send(file);
-  });
-}
+    // 3) confirm (inkl. Hash)
+    log("hash â€¦");
+    const sha = await sha256Hex(f);
+    log("confirm â€¦");
+    await fetch("http://localhost:8081/files/confirm", {
+      method:"POST",
+      headers:{ "Content-Type":"application/json" },
+      body: JSON.stringify({ file_id: pres.file_id, sha256_hex: sha })
+    }).then(r=>{ if(!r.ok) throw new Error("confirm HTTP "+r.status); });
 
-/* ---- Recent table ---- */
-function renderTable(items){
-  const tb = $("#tbl tbody"); tb.innerHTML = "";
-  for(const x of items){
-    const kept = !!x.retention_keep;
-    const statusChip = kept ? `<span class="chip ok">KEEP</span>` : (x.within_24h ? `<span class="chip warn">within_24h</span>` : `<span class="chip">ok</span>`);
-    const nextKeep = !kept; const btnLabel = kept ? "Make Ephemeral" : "Keep";
-    const taken = x.exif_taken_at ? new Date(x.exif_taken_at).toLocaleString() : (x.server_received_at ? new Date(x.server_received_at).toLocaleString()+" (server)" : "-");
-    const tr = document.createElement("tr");
-    tr.innerHTML = `
-      <td><a href="${x.get_url}" target="_blank">${x.filename}</a></td>
-      <td>${x.content_type || "-"}</td>
-      <td>${fmtSize(x.size_bytes)}</td>
-      <td>${taken}</td>
-      <td>${statusChip}</td>
-      <td class="row-actions">
-        <button class="btn-keep" data-id="${x.id}" data-keep="${nextKeep}">${btnLabel}</button>
-        <button class="btn-copy" data-id="${x.id}">Copy URL</button>
-        <button class="btn-open" data-id="${x.id}">Open</button>
-        <button class="btn-del" data-id="${x.id}">Delete</button>
-      </td>`;
-    tb.appendChild(tr);
-  }
-  $$(".btn-keep").forEach(b => b.onclick = async e => {
-    const id = e.currentTarget.dataset.id; const keep = e.currentTarget.dataset.keep==="true";
-    try { await patchRetention(id, keep); showToast(keep?"Keep gesetzt":"Ephemeral gesetzt"); await loadRecent(); }
-    catch(err){ showToast("Fehler Retention: "+err.message); }
-  });
-  $$(".btn-copy").forEach(b => b.onclick = async e => {
-    const id = e.currentTarget.dataset.id;
-    try { const url = await freshGetUrl(id); await navigator.clipboard.writeText(url); showToast("URL kopiert"); }
-    catch(err){ showToast("Copy fehlgeschlagen: "+(err.message||err)); }
-  });
-  $$(".btn-open").forEach(b => b.onclick = async e => {
-    const id = e.currentTarget.dataset.id;
-    try { const url = await freshGetUrl(id); window.open(url, "_blank"); }
-    catch(err){ showToast("Open fehlgeschlagen: "+(err.message||err)); }
-  });
-  $$(".btn-del").forEach(b => b.onclick = async e => {
-    const id = e.currentTarget.dataset.id;
-    if(!confirm("Datei wirklich löschen?")) return;
-    try { await delFile(id); showToast("Gelöscht"); await loadRecent(); }
-    catch(err){ showToast("Fehler Delete: "+err.message); }
-  });
-}
-
-/* ---------- Queue UI helpers ---------- */
-function addQueueItem(file){
-  const el = document.createElement("div");
-  el.className = "qitem";
-  el.innerHTML = `
-    <div class="qmeta">
-      <span class="qname" title="${file.name}">${file.name}</span>
-      <span class="qsize">${fmtSize(file.size)}</span>
-      <span class="tag">${file.type || "?"}</span>
-    </div>
-    <div class="qstatus">wartet…</div>
-    <div class="qbar"><div class="progress"><div class="bar" style="width:0%"></div></div></div>
-    <div class="qerr" style="display:none;"></div>`;
-  $("#queue").prepend(el);
-  const bar = el.querySelector(".bar");
-  const status = el.querySelector(".qstatus");
-  const qerr = el.querySelector(".qerr");
-  return {
-    setStage: (txt)=>{ status.textContent = txt; },
-    setProgress: (p)=>{ bar.style.width = Math.max(0,Math.min(100,p))+"%"; },
-    done: ()=>{ status.textContent = "fertig"; bar.style.width="100%"; },
-    fail: (msg)=>{ status.textContent = "fehler"; qerr.textContent = msg; qerr.style.display="block"; },
-    el
-  };
-}
-
-/* ---------- Concurrency queue ---------- */
-const pending = [];
-let active = 0;
-
-function enqueue(file, keep){
-  const ui = addQueueItem(file);
-  pending.push({file, keep, ui});
-  pump();
-}
-function pump(){
-  while(active < MAX_PARALLEL && pending.length){
-    const job = pending.shift();
-    runJob(job).finally(()=>{ active--; pump(); });
-    active++;
-  }
-}
-async function runJob({file, keep, ui}){
-  try{
-    ui.setStage("hashing…"); ui.setProgress(5);
-    const hash = await sha256Hex(file); ui.setProgress(10);
-
-    const chk = isAllowed(file);
-    if (!chk.ok) { ui.fail(chk.msg); return; }
-
-    ui.setStage("presign…");
-    const ctype = file.type || "application/octet-stream";
-    const pres = await presign2(file.name, ctype, file.size);
-    ui.setProgress(30);
-
-    ui.setStage("upload…");
-    await putWithProgress(pres.url, file, ctype, frac=>{
-      const p = 30 + Math.round(frac*60); ui.setProgress(p);
-    });
-
-    ui.setStage("confirm…"); ui.setProgress(92);
-    await confirm2(pres.file_id, hash || undefined);
-
+    // optional: Keep
     if(keep){
-      ui.setStage("keep setzen…"); ui.setProgress(96);
-      await patchRetention(pres.file_id, true);
+      log("keep setzen â€¦");
+      await fetch(`http://localhost:8081/files/${pres.file_id}/retention`, {
+        method:"PATCH",
+        headers:{ "Content-Type":"application/json" },
+        body: JSON.stringify({ within_24h: false })
+      }).then(r=>{ if(!r.ok) throw new Error("retention HTTP "+r.status); });
     }
 
-    ui.done(); ui.setStage("fertig");
-    showToast(`Upload ok: ${file.name}`);
-    await loadRecent();
-  }catch(err){
-    console.error(err);
-    ui.fail(String(err.message||err));
-    showToast(`Fehler bei ${file.name}: ${err.message||err}`);
+    log("fertig âœ“", "ok");
+    log("â†’ Ã–ffne Recent Files, dort sollte der Eintrag erscheinen.", "ok");
+    window.open("http://localhost:5173/files.html", "_blank");
+  } catch(e){
+    log("Fehler: "+e.message, "err");
+    log("Bitte F12 (Entwicklertools) â†’ Reiter 'Network' prÃ¼fen und die rote Zeile anklicken.", "err");
+  } finally {
+    btn.disabled = false;
   }
 }
-
-/* ---------- DnD + Paste + Select ---------- */
-const dz = $("#dropzone");
-dz.addEventListener("click", () => $("#file").click());
-dz.addEventListener("dragover", e => { e.preventDefault(); dz.classList.add("dragover"); });
-dz.addEventListener("dragleave", () => dz.classList.remove("dragover"));
-dz.addEventListener("drop", async e => {
-  e.preventDefault(); dz.classList.remove("dragover");
-  const keep = $("#keep").checked;
-  const files = e.dataTransfer?.files; if(files?.length){ for (const f of files) enqueue(f, keep); }
-});
-window.addEventListener("paste", async e => {
-  const keep = $("#keep").checked;
-  const items = e.clipboardData?.items || [];
-  const files = [];
-  for (const it of items){ if (it.kind === "file") { const f = it.getAsFile(); if (f) files.push(f); } }
-  if (files.length){ showToast(`${files.length} Datei(en) aus Zwischenablage`); for (const f of files) enqueue(f, keep); }
-});
-async function handleUploadClick(){
-  const keep = $("#keep").checked;
-  const files = $("#file").files; if(!files || files.length===0){ showToast("Bitte Datei wählen"); return; }
-  for(const f of files){ enqueue(f, keep); }
-}
-
-/* ---------- init ---------- */
-$("#btnUpload").onclick = handleUploadClick;
-$("#btnRefresh").onclick = loadRecent;
-$("#file").addEventListener("change", handleUploadClick);
-applyPolicy();
-loadRecent().catch(e=>showToast("Recent-Fehler: "+e.message));
-setInterval(()=>document.hidden?null:loadRecent(),7000);
 </script>
-</body>
-</html>
 

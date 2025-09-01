@@ -1,4 +1,4 @@
-﻿$ErrorActionPreference="Stop"
+$ErrorActionPreference="Stop"
 Write-Host "==> Redeploy FastAPI + Smoke" -ForegroundColor Cyan
 
 # Pfade
